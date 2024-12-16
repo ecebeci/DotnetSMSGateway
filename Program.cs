@@ -19,7 +19,6 @@ using System.IO.Ports;
 using StackExchange.Redis;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
-using System.Text;
 
 namespace SMS_Gateway;
 public class Program
@@ -34,6 +33,7 @@ public class Program
     EnvReader.Load(".env");
     InitializeSerialPort();
     InitializeRedis();
+
     Console.WriteLine("Type QUIT to exit");
     var stringComparer = StringComparer.OrdinalIgnoreCase;
     while (true)
@@ -51,6 +51,8 @@ public class Program
             string.Format($"{message}\r\n"));
       }
     }
+
+    _logger.LogInformation("Closing Serial port");
     _serialPort?.Close();
   }
 
@@ -67,6 +69,7 @@ public class Program
       ReadTimeout = Timeout.Infinite,
       WriteTimeout = 500
     };
+
     _logger.LogInformation("Open Serial port");
     try
     {
@@ -81,9 +84,6 @@ public class Program
     _serialPort.WriteLine("AT+CPMS=\"ME\"\r\n");
     _logger.LogInformation("Select Message Format to Text Mode ");
     _serialPort.WriteLine("AT+CMGF=1\r\n");
-    // _logger.LogInformation("Select TE Character Set to Unicode");
-    // _serialPort.WriteLine("AT+CSCS=\"UCS2\"\r\n");
-    // _logger.LogInformation("Set SMS Text Mode Parameters https://en.wikipedia.org/wiki/Data_Coding_Scheme ");
     _serialPort.WriteLine("AT+CSMP=17,167,0,0\r\n");
     _logger.LogInformation("Add data received event handler");
     _serialPort.DataReceived += SerialPortDataReceived;
@@ -130,7 +130,6 @@ public class Program
 
         var senderStart = message.IndexOf("\",\"", statusStart) + 3;
         var senderEnd = message.IndexOf('\"', senderStart);
-        // var sender = ConvertUCS2HexToUtf8(message[senderStart..senderEnd]);
         var sender = message[senderStart..senderEnd];
 
         int unknownValStart = senderEnd + 2;
@@ -173,8 +172,6 @@ public class Program
         _logger.LogError("Receiver is null");
         return;
       }
-      // string receiver = ConvertToUCS2(message.Receiver);
-      // string ucs2Message = ConvertToUCS2(message.Content);
       _serialPort?.WriteLine($"AT+CMGS=\"{message.Receiver}\"\r");
       _serialPort?.WriteLine($"{message.Content}\x1A");
       _logger.LogInformation("Message sent to {Receiver}: {Message}", message.Receiver, message);
@@ -183,10 +180,6 @@ public class Program
     {
       _logger.LogError(ex, "Error sending message: {Message}", ex.Message);
     }
-  }
-  static string ConvertToUCS2(string input)
-  {
-    return string.Concat(input.Select(c => ((int)c).ToString("X4")));
   }
 
   static void InitializeRedis()
@@ -229,18 +222,5 @@ public class Program
         _logger.LogError(ex, "Unexpected error processing message on channel {Channel}: {Message}", channel, ex.Message);
       }
     });
-  }
-
-  static string ConvertUCS2HexToUtf8(string ucs2Hex)
-  {
-    byte[] ucs2Bytes = new byte[ucs2Hex.Length / 2];
-    for (int i = 0; i < ucs2Hex.Length; i += 2)
-    {
-      ucs2Bytes[i / 2] = Convert.ToByte(ucs2Hex.Substring(i, 2), 16);
-    }
-
-    string ucs2String = Encoding.BigEndianUnicode.GetString(ucs2Bytes);
-
-    return ucs2String;
   }
 }
